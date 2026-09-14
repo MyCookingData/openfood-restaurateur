@@ -416,7 +416,7 @@ packages:
   openfood_models:
     dependency: "direct main"
     description:
-      path: "../openfood_models"
+      path: "../openfood-models"
       relative: true
     source: path
     version: "1.0.0"

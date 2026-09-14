@@ -41,7 +41,7 @@ dependencies:
   intl: ^0.20.2
   google_fonts: ^8.1.0
   openfood_models:
-    path: ../openfood_models
+    path: ../openfood-models
   fl_chart: ^1.2.0
   flutter_localizations:
     sdk: flutter
