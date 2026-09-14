@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:openfood_models/openfood_models.dart';
@@ -102,6 +102,35 @@ class _MainDashboardState extends State<MainDashboard> {
                     _buildNavItem(Icons.restaurant_menu_rounded, 'Menu & Options', 3),
                     _buildNavItem(Icons.inventory_2_outlined, 'Disponibilité (Stock)', 4),
                     const Spacer(),
+                    Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.03),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white10),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: const [
+                              Icon(Icons.code_rounded, color: AppTheme.emeraldGreen, size: 16),
+                              SizedBox(width: 8),
+                              Text(
+                                "Cooking Data",
+                                style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          const Text(
+                            "Propulsé par Cooking Data • Solutions Numériques & IA en Martinique 🇲🇶",
+                            style: TextStyle(color: Colors.white38, fontSize: 9.5),
+                          ),
+                        ],
+                      ),
+                    ),
                     const Divider(color: Colors.white12),
                     ListTile(
                       leading: const Icon(Icons.logout, color: Colors.white54),
