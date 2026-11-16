@@ -1,7 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
+import 'package:image_picker_for_web/image_picker_for_web.dart';
 import 'theme/app_theme.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/dashboard/main_dashboard.dart';
@@ -9,6 +12,13 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (kIsWeb) {
+    try {
+      ImagePickerPlatform.instance = ImagePickerPlugin();
+    } catch (e) {
+      debugPrint('Registration of ImagePickerPlugin failed: $e');
+    }
+  }
   await Firebase.initializeApp(
     options: const FirebaseOptions(
       apiKey: 'AIzaSyCaAfkg8zLlK8gU42rDJ4zeieZ4xXtXp-k',
