@@ -12,142 +12,206 @@ class OverviewTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Calculer le début de la journée pour filtrer les commandes d'aujourd'hui
     final today = DateTime.now();
     final startOfDay = DateTime(today.year, today.month, today.day);
 
-    return Padding(
-      padding: const EdgeInsets.all(32.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Tableau de bord - ${restaurant.name}',
-            style: const TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 32),
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('orders')
-                  .where('restaurantId', isEqualTo: restaurant.id)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator(color: AppTheme.emeraldGreen));
-                }
-                if (snapshot.hasError) {
-                  return const Center(child: Text("Erreur de chargement des données", style: TextStyle(color: Colors.red)));
-                }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 650;
+        final isTablet = constraints.maxWidth < 1000;
+        final horizontalPadding = isMobile ? 16.0 : 24.0;
 
-                final allOrders = snapshot.data?.docs.map((doc) => OrderModel.fromFirestore(doc)).toList() ?? [];
-                
-                // Filtrer pour aujourd'hui
-                final todaysOrders = allOrders.where((order) => order.createdAt.isAfter(startOfDay)).toList();
-                
-                final double totalRevenueToday = todaysOrders.fold(0, (sum, order) => sum + order.totalAmount);
-                final int pendingOrders = todaysOrders.where((o) => o.status == 0).length;
-                final int completedOrders = todaysOrders.where((o) => o.status == 3).length;
+        return SingleChildScrollView(
+          padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 20.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Tableau de bord - ${restaurant.name}',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: isMobile ? 22 : 28,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 20),
+              StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance
+                    .collection('orders')
+                    .where('restaurantId', isEqualTo: restaurant.id)
+                    .snapshots(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const SizedBox(
+                      height: 200,
+                      child: Center(child: CircularProgressIndicator(color: AppTheme.emeraldGreen)),
+                    );
+                  }
+                  if (snapshot.hasError) {
+                    return const Center(
+                      child: Text("Erreur de chargement des données", style: TextStyle(color: Colors.red)),
+                    );
+                  }
 
-                return Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      flex: 2,
-                      child: Column(
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(child: _buildKPI("Chiffre d'Affaires (Jour)", "${totalRevenueToday.toStringAsFixed(2)} €", Icons.monetization_on, AppTheme.emeraldGreen)),
-                              const SizedBox(width: 16),
-                              Expanded(child: _buildKPI("Commandes en attente", "$pendingOrders", Icons.timer, Colors.orangeAccent)),
-                              const SizedBox(width: 16),
-                              Expanded(child: _buildKPI("Commandes livrées", "$completedOrders", Icons.check_circle, Colors.blueAccent)),
-                            ],
-                          ),
-                          const SizedBox(height: 24),
-                          Expanded(
-                            child: GlassContainer(
-                              padding: const EdgeInsets.all(24),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text("Évolution des ventes (Semaine)", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-                                  const SizedBox(height: 24),
-                                  Expanded(child: _buildChart(allOrders)),
-                                ],
-                              ),
+                  final allOrders = snapshot.data?.docs.map((doc) => OrderModel.fromFirestore(doc)).toList() ?? [];
+                  final todaysOrders = allOrders.where((order) => order.createdAt.isAfter(startOfDay)).toList();
+
+                  final double totalRevenueToday = todaysOrders.fold(0, (sum, order) => sum + order.totalAmount);
+                  final int pendingOrders = todaysOrders.where((o) => o.status == 0).length;
+                  final int completedOrders = todaysOrders.where((o) => o.status == 3).length;
+
+                  // Cartes KPI
+                  final kpiWidgets = [
+                    _buildKPI("Chiffre d'Affaires (Jour)", "${totalRevenueToday.toStringAsFixed(2)} €", Icons.monetization_on, AppTheme.emeraldGreen, isMobile),
+                    _buildKPI("Commandes en attente", "$pendingOrders", Icons.timer, Colors.orangeAccent, isMobile),
+                    _buildKPI("Commandes livrées", "$completedOrders", Icons.check_circle, Colors.blueAccent, isMobile),
+                  ];
+
+                  Widget kpisRow;
+                  if (isMobile) {
+                    kpisRow = Column(
+                      children: kpiWidgets.map((w) => Padding(padding: const EdgeInsets.only(bottom: 12), child: w)).toList(),
+                    );
+                  } else {
+                    kpisRow = Row(
+                      children: kpiWidgets.map((w) => Expanded(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 6), child: w))).toList(),
+                    );
+                  }
+
+                  // Section Graphique + Commandes Récentes
+                  final chartWidget = GlassContainer(
+                    padding: EdgeInsets.all(isMobile ? 16 : 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          "Évolution des ventes (Semaine)",
+                          style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 20),
+                        SizedBox(height: 220, child: _buildChart(allOrders)),
+                      ],
+                    ),
+                  );
+
+                  final recentOrdersWidget = GlassContainer(
+                    padding: EdgeInsets.all(isMobile ? 16 : 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          "Commandes Récentes",
+                          style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 14),
+                        if (todaysOrders.isEmpty)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 24),
+                            child: Center(
+                              child: Text("Aucune commande aujourd'hui", style: TextStyle(color: Colors.white54, fontSize: 13)),
                             ),
                           )
-                        ],
-                      ),
+                        else
+                          ListView.separated(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: todaysOrders.length > 5 ? 5 : todaysOrders.length,
+                            separatorBuilder: (_, __) => const Divider(color: Colors.white12),
+                            itemBuilder: (context, index) {
+                              todaysOrders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+                              final order = todaysOrders[index];
+                              return ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: CircleAvatar(
+                                  backgroundColor: _getStatusColor(order.status).withValues(alpha: 0.2),
+                                  child: Icon(Icons.receipt, color: _getStatusColor(order.status), size: 18),
+                                ),
+                                title: Text(
+                                  "#${order.id.length >= 6 ? order.id.substring(0, 6).toUpperCase() : order.id}",
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                                ),
+                                subtitle: Text(
+                                  DateFormat('HH:mm').format(order.createdAt),
+                                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                                ),
+                                trailing: Text(
+                                  "${order.totalAmount.toStringAsFixed(2)} €",
+                                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                                ),
+                              );
+                            },
+                          ),
+                      ],
                     ),
-                    const SizedBox(width: 24),
-                    Expanded(
-                      flex: 1,
-                      child: GlassContainer(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
+                  );
+
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      kpisRow,
+                      const SizedBox(height: 20),
+                      if (isTablet) ...[
+                        chartWidget,
+                        const SizedBox(height: 20),
+                        recentOrdersWidget,
+                      ] else ...[
+                        Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text("Commandes Récentes", style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
-                            const SizedBox(height: 16),
-                            Expanded(
-                              child: ListView.separated(
-                                itemCount: todaysOrders.length > 5 ? 5 : todaysOrders.length,
-                                separatorBuilder: (_, __) => const Divider(color: Colors.white12),
-                                itemBuilder: (context, index) {
-                                  // Trier par date décroissante
-                                  todaysOrders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-                                  final order = todaysOrders[index];
-                                  return ListTile(
-                                    contentPadding: EdgeInsets.zero,
-                                    leading: CircleAvatar(
-                                      backgroundColor: _getStatusColor(order.status).withValues(alpha: 0.2),
-                                      child: Icon(Icons.receipt, color: _getStatusColor(order.status), size: 20),
-                                    ),
-                                    title: Text("#${order.id.substring(0, 5).toUpperCase()}", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                    subtitle: Text(DateFormat('HH:mm').format(order.createdAt), style: const TextStyle(color: Colors.white54)),
-                                    trailing: Text("${order.totalAmount.toStringAsFixed(2)} €", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                                  );
-                                },
-                              ),
-                            )
+                            Expanded(flex: 3, child: chartWidget),
+                            const SizedBox(width: 20),
+                            Expanded(flex: 2, child: recentOrdersWidget),
                           ],
                         ),
-                      ),
-                    )
-                  ],
-                );
-              },
-            ),
-          )
-        ],
-      ),
+                      ],
+                      const SizedBox(height: 24),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
-  Widget _buildKPI(String title, String value, IconData icon, Color color) {
+  Widget _buildKPI(String title, String value, IconData icon, Color color, bool isMobile) {
     return GlassContainer(
-      padding: const EdgeInsets.all(24),
+      padding: EdgeInsets.all(isMobile ? 14 : 20),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(16),
+            padding: EdgeInsets.all(isMobile ? 10 : 14),
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(icon, color: color, size: 32),
+            child: Icon(icon, color: color, size: isMobile ? 24 : 28),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Text(title, style: const TextStyle(color: Colors.white54, fontSize: 14)),
-                const SizedBox(height: 4),
-                Text(value, style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)),
+                Text(
+                  title,
+                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: isMobile ? 20 : 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ],
             ),
           )
@@ -157,12 +221,11 @@ class OverviewTab extends StatelessWidget {
   }
 
   Widget _buildChart(List<OrderModel> orders) {
-    // Regrouper par jour sur les 7 derniers jours
     final now = DateTime.now();
     final Map<int, double> salesByDay = {for (var i = 0; i < 7; i++) i: 0};
-    
+
     for (var order in orders) {
-      if (order.status == 4) continue; // Ignorer annulées
+      if (order.status == 4) continue;
       final diff = now.difference(order.createdAt).inDays;
       if (diff >= 0 && diff < 7) {
         salesByDay[6 - diff] = (salesByDay[6 - diff] ?? 0) + order.totalAmount;
@@ -191,7 +254,7 @@ class OverviewTab extends StatelessWidget {
             spots: spots,
             isCurved: true,
             color: AppTheme.emeraldGreen,
-            barWidth: 4,
+            barWidth: 3.5,
             isStrokeCapRound: true,
             dotData: const FlDotData(show: false),
             belowBarData: BarAreaData(

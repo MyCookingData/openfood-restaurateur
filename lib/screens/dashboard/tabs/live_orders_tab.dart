@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -15,50 +17,109 @@ class LiveOrdersTab extends StatefulWidget {
 }
 
 class _LiveOrdersTabState extends State<LiveOrdersTab> {
-  void _updateOrderStatus(String orderId, int newStatus, [int? prepTimeMinutes]) {
-    final data = <String, dynamic>{'status': newStatus};
-    if (newStatus == 3) {
-      data['deliveredAt'] = Timestamp.now();
+  bool _isProcessing = false;
+
+  Future<void> _updateOrderStatus(String orderId, int newStatus, [int? prepTimeMinutes]) async {
+    setState(() => _isProcessing = true);
+    try {
+      if (newStatus == 1 || newStatus == 4) {
+        final doc = await FirebaseFirestore.instance.collection('orders').doc(orderId).get();
+        final data = doc.data() ?? {};
+        final paymentIntentId = data['stripePaymentIntentId'] as String?;
+
+        if (paymentIntentId != null && paymentIntentId.isNotEmpty && !paymentIntentId.startsWith('pi_mock')) {
+          final action = newStatus == 1 ? 'capture' : 'cancel';
+          final response = await http.post(
+            Uri.parse('https://openfood.fr/api/manage_payment_intent.php'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'paymentIntentId': paymentIntentId,
+              'action': action,
+            }),
+          );
+          if (response.statusCode != 200) {
+            final resData = jsonDecode(response.body);
+            throw Exception(resData['error'] ?? "Erreur lors de la gestion du paiement Stripe (Code ${response.statusCode})");
+          }
+        }
+      }
+
+      final updateData = <String, dynamic>{'status': newStatus};
+      if (newStatus == 1) {
+        updateData['paymentStatus'] = 'captured';
+      } else if (newStatus == 4) {
+        updateData['paymentStatus'] = 'cancelled';
+      }
+      if (newStatus == 3) {
+        updateData['deliveredAt'] = Timestamp.now();
+      }
+      if (prepTimeMinutes != null) {
+        updateData['prepTimeMinutes'] = prepTimeMinutes;
+      }
+      updateData['updatedAt'] = FieldValue.serverTimestamp();
+
+      await FirebaseFirestore.instance.collection('orders').doc(orderId).update(updateData);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              newStatus == 1 ? 'Commande acceptée et paiement validé !' :
+              newStatus == 4 ? 'Commande refusée et pré-autorisation annulée.' :
+              newStatus == 2 ? 'Commande marquée comme prête !' : 'Statut mis à jour.',
+            ),
+            backgroundColor: newStatus == 4 ? Colors.orangeAccent : AppTheme.emeraldGreen,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur : $e', style: const TextStyle(color: Colors.white, fontSize: 13)),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isProcessing = false);
     }
-    if (prepTimeMinutes != null) {
-      data['prepTimeMinutes'] = prepTimeMinutes;
-    }
-    FirebaseFirestore.instance.collection('orders').doc(orderId).update(data).catchError((e) {
-      debugPrint("Error updating status: $e");
-    });
   }
 
   void _promptAcceptOrder(String orderId) {
     showDialog(
       context: context,
       builder: (context) {
+        final screenWidth = MediaQuery.of(context).size.width;
         return Dialog(
           backgroundColor: Colors.transparent,
           child: GlassContainer(
-            padding: const EdgeInsets.all(32),
-            child: SizedBox(
-              width: 400,
+            padding: const EdgeInsets.all(24),
+            child: Container(
+              constraints: BoxConstraints(maxWidth: screenWidth < 450 ? screenWidth - 48 : 400),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('Temps de préparation', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 16),
-                  const Text('Combien de temps faut-il pour préparer cette commande ?', style: TextStyle(color: Colors.white70)),
-                  const SizedBox(height: 24),
+                  const Text('Temps de préparation', style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 12),
+                  const Text('Combien de temps faut-il pour préparer cette commande ?', style: TextStyle(color: Colors.white70), textAlign: TextAlign.center),
+                  const SizedBox(height: 20),
                   Wrap(
-                    spacing: 16,
-                    runSpacing: 16,
+                    spacing: 12,
+                    runSpacing: 12,
+                    alignment: WrapAlignment.center,
                     children: [10, 20, 30, 40].map((time) {
                       return ElevatedButton(
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.emeraldGreen,
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         ),
                         onPressed: () {
-                          _updateOrderStatus(orderId, 1, time);
                           Navigator.of(context).pop();
+                          _updateOrderStatus(orderId, 1, time);
                         },
-                        child: Text('$time min', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        child: Text('$time min', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15)),
                       );
                     }).toList(),
                   ),
@@ -73,57 +134,66 @@ class _LiveOrdersTabState extends State<LiveOrdersTab> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(32.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Commandes en Cours',
-            style: TextStyle(
-              fontSize: 32,
-              fontWeight: FontWeight.bold,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(height: 24),
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance
-                  .collection('orders')
-                  .where('restaurantId', isEqualTo: widget.restaurant.id)
-                  .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) return Center(child: Text('Erreur: ${snapshot.error}', style: const TextStyle(color: Colors.redAccent)));
-                if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(color: AppTheme.emeraldGreen));
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isMobile = constraints.maxWidth < 650;
+        final padding = isMobile ? 16.0 : 24.0;
 
-                if (snapshot.hasData) {
-                  var orders = snapshot.data!.docs
-                      .map((doc) => OrderModel.fromFirestore(doc))
-                      .where((order) => order.status < 4)
-                      .toList();
+        return Padding(
+          padding: EdgeInsets.all(padding),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Commandes en Cours',
+                style: TextStyle(
+                  fontSize: isMobile ? 24 : 30,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('orders')
+                      .where('restaurantId', isEqualTo: widget.restaurant.id)
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) return Center(child: Text('Erreur: ${snapshot.error}', style: const TextStyle(color: Colors.redAccent)));
+                    if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(color: AppTheme.emeraldGreen));
 
-                  orders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+                    if (snapshot.hasData) {
+                      var orders = snapshot.data!.docs
+                          .map((doc) => OrderModel.fromFirestore(doc))
+                          .where((order) => order.status < 4)
+                          .toList();
 
-                  if (orders.isEmpty) {
-                    return const GlassContainer(
-                      padding: EdgeInsets.all(24),
-                      child: Center(child: Text('Aucune commande active', style: TextStyle(color: Colors.white70, fontSize: 18))),
-                    );
-                  }
+                      orders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-                  return LayoutBuilder(
-                    builder: (context, constraints) {
+                      if (orders.isEmpty) {
+                        return const GlassContainer(
+                          padding: EdgeInsets.all(24),
+                          child: Center(child: Text('Aucune commande active', style: TextStyle(color: Colors.white70, fontSize: 18))),
+                        );
+                      }
+
                       int crossAxisCount = 3;
-                      if (constraints.maxWidth < 600) crossAxisCount = 1;
-                      else if (constraints.maxWidth < 1100) crossAxisCount = 2;
+                      double mainAxisExtent = 460;
+                      if (constraints.maxWidth < 700) {
+                        crossAxisCount = 1;
+                        mainAxisExtent = 500;
+                      } else if (constraints.maxWidth < 1150) {
+                        crossAxisCount = 2;
+                        mainAxisExtent = 480;
+                      }
 
                       return GridView.builder(
                         gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: crossAxisCount,
-                          mainAxisExtent: 440,
-                          crossAxisSpacing: 24,
-                          mainAxisSpacing: 24,
+                          mainAxisExtent: mainAxisExtent,
+                          crossAxisSpacing: 16,
+                          mainAxisSpacing: 16,
                         ),
                         itemCount: orders.length,
                         itemBuilder: (context, index) {
@@ -136,14 +206,14 @@ class _LiveOrdersTabState extends State<LiveOrdersTab> {
                         },
                       );
                     }
-                  );
-                }
-                return const Center(child: CircularProgressIndicator(color: AppTheme.emeraldGreen));
-              },
-            ),
+                    return const Center(child: CircularProgressIndicator(color: AppTheme.emeraldGreen));
+                  },
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
